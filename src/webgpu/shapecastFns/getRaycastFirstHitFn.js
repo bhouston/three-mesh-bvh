@@ -1,11 +1,11 @@
 /** @import { BVHComputeData } from '../BVHComputeData.js' */
 import { float } from 'three/tsl';
 import { wgslTagFn } from '../nodes/WGSLTagFnNode.js';
-import { rayStruct, rayIntersectionResultStruct, bvhNodeStruct, bvhNodeBoundsStruct } from '../tsl/structs.js';
+import { rayStruct, rayIntersectionResultStruct, bvhNodeBoundsStruct } from '../tsl/structs.js';
 import { intersectRayTriangle } from '../tsl/fns.js';
 
 /**
- * Builds the `raycastFirstHit` shapecast function: traverses the BVH front to back and returns the
+ * Builds the `raycastFirstHit` shapecast function: traverses the BVH nearest child first and returns the
  * closest ray / triangle intersection.
  *
  * @private
@@ -24,15 +24,8 @@ export function getRaycastFirstHitFn( bvhData ) {
 		shapeStruct: rayStruct,
 		resultStruct: rayIntersectionResultStruct,
 
-		boundsOrderFn: wgslTagFn/* wgsl */`
-			fn getBoundsOrder( ray: ${ rayStruct }, splitAxis: u32, node: ${ bvhNodeStruct } ) -> bool {
-
-				return ray.direction[ splitAxis ] >= 0.0;
-
-			}
-		`,
-		intersectsBoundsFn: wgslTagFn/* wgsl */`
-			fn rayIntersectsBounds( ray: ${ rayStruct }, bounds: ${ bvhNodeBoundsStruct }, result: ptr<function, ${ rayIntersectionResultStruct }> ) -> u32 {
+		boundsDistanceFn: wgslTagFn/* wgsl */`
+			fn rayBoundsDistance( ray: ${ rayStruct }, bounds: ${ bvhNodeBoundsStruct }, result: ptr<function, ${ rayIntersectionResultStruct }> ) -> f32 {
 
 				let boundsMin = vec3( bounds.min[0], bounds.min[1], bounds.min[2] );
 				let boundsMax = vec3( bounds.max[0], bounds.max[1], bounds.max[2] );
@@ -41,42 +34,47 @@ export function getRaycastFirstHitFn( bvhData ) {
 				let tMinPlane = ( boundsMin - ray.origin ) * invDir;
 				let tMaxPlane = ( boundsMax - ray.origin ) * invDir;
 
-				let tMinHit = vec3f(
-					min( tMinPlane.x, tMaxPlane.x ),
-					min( tMinPlane.y, tMaxPlane.y ),
-					min( tMinPlane.z, tMaxPlane.z )
-				);
-
-				let tMaxHit = vec3f(
-					max( tMinPlane.x, tMaxPlane.x ),
-					max( tMinPlane.y, tMaxPlane.y ),
-					max( tMinPlane.z, tMaxPlane.z )
-				);
+				let tMinHit = min( tMinPlane, tMaxPlane );
+				let tMaxHit = max( tMinPlane, tMaxPlane );
 
 				let t0 = max( max( tMinHit.x, tMinHit.y ), tMinHit.z );
 				let t1 = min( min( tMaxHit.x, tMaxHit.y ), tMaxHit.z );
 
+				// the distance is scaled to world space so it can be compared across clusters
 				let dist = max( t0, 0.0 );
+				let worldDist = dist * ${ scratchRayScalar };
 				if ( t1 < dist ) {
 
-					return 0u;
+					return - 1.0;
 
-				} else if ( ray.maxDist > 0.0 && dist * ${ scratchRayScalar } >= ray.maxDist ) {
+				} else if ( ray.maxDist > 0.0 && worldDist >= ray.maxDist ) {
 
-					return 0u;
+					return - 1.0;
 
-				} else if ( result.didHit && dist * ${ scratchRayScalar } >= result.dist ) {
+				} else if ( result.didHit && worldDist >= result.dist ) {
 
-					return 0u;
+					return - 1.0;
 
 				} else {
 
-					return 1u;
+					return worldDist;
 
 				}
 
 			}
+		`,
+		distanceLimitFn: wgslTagFn/* wgsl */`
+			fn rayDistanceLimit( ray: ${ rayStruct }, result: ptr<function, ${ rayIntersectionResultStruct }> ) -> f32 {
 
+				if ( result.didHit ) {
+
+					return result.dist;
+
+				}
+
+				return select( 3.402823e38, ray.maxDist, ray.maxDist > 0.0 );
+
+			}
 		`,
 		intersectRangeFn: wgslTagFn/* wgsl */`
 			fn intersectRange( ray: ${ rayStruct }, offset: u32, count: u32, result: ptr<function, ${ rayIntersectionResultStruct }> ) -> bool {

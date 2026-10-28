@@ -16,7 +16,10 @@ import { BVH_STACK_DEPTH } from '../tsl/constants.js';
  * @param {StructTypeNode|null} [options.resultStruct] - TSL struct for the accumulated result, or null.
  * @param {Function|null} [options.prefixFn] - function node that runs before the bvh traversal - useful for resetting or initializing necessary module variables.
  * @param {Function|null} [options.boundsOrderFn] - function node controlling left/right child traversal order.
- * @param {Function} options.intersectsBoundsFn - function node testing the shape against a BVH node's bounds.
+ * @param {Function} [options.intersectsBoundsFn] - function node testing the shape against a BVH node's bounds. Required unless `boundsDistanceFn` is set.
+ * @param {Function|null} [options.boundsDistanceFn] - function node returning the distance at which the shape enters a BVH node's bounds, or a negative value to skip it.
+ * Replaces `intersectsBoundsFn` and `boundsOrderFn`: children are visited nearest first and the distance is kept on the stack.
+ * @param {Function|null} [options.distanceLimitFn] - function node returning the distance beyond which stacked nodes are skipped when popped, eg the closest hit so far. Used with `boundsDistanceFn`.
  * @param {Function} options.intersectRangeFn - function node testing the shape against a leaf triangle range.
  * @param {Function|null} [options.transformShapeFn] - function node that transforms the shape into object local space.
  * @param {Function|null} [options.transformResultFn] - function node that transforms a hit result back to world space.
@@ -37,7 +40,9 @@ export function getShapecastFn( bvhData, options ) {
 
 		prefixFn = null,
 		boundsOrderFn = null,
-		intersectsBoundsFn,
+		intersectsBoundsFn = null,
+		boundsDistanceFn = null,
+		distanceLimitFn = null,
 		intersectRangeFn,
 		transformShapeFn = null,
 		transformResultFn = null,
@@ -92,6 +97,96 @@ export function getShapecastFn( bvhData, options ) {
 	const resultPtrSnippet = resultStruct ? wgslTagCode/* wgsl */`result: ptr<function, ${ resultStruct }>` : '';
 	const resultArg = resultStruct ? 'result' : '';
 
+	// with a distance function the entry distance of each stacked node is stored next to it so nodes
+	// behind the closest hit can be skipped without being read, see "Understanding the Efficiency of
+	// Ray Traversal on GPUs" (Aila and Laine, 2009)
+	const sorted = boundsDistanceFn !== null;
+	const distStackSnippet = sorted ? wgslTagCode/* wgsl */`
+		var distStack: array<f32, ${ BVH_STACK_DEPTH }>;
+		distStack[ 0 ] = 0.0;
+	` : '';
+
+	const popDistSnippet = sorted ? 'let nodeDist = distStack[ pointer ];' : '';
+
+	let cullSnippet = '';
+	if ( distanceLimitFn ) {
+
+		cullSnippet = wgslTagCode/* wgsl */`
+			if ( nodeDist >= ${ distanceLimitFn }( localShape, ${ resultArg } ) ) {
+
+				continue;
+
+			}
+		`;
+
+	}
+
+	let childrenSnippet;
+	if ( sorted ) {
+
+		childrenSnippet = wgslTagCode/* wgsl */`
+			// test both children here, pushing the farther one first so the nearer is popped next
+			let leftIndex = nodeIndex + 1u;
+			let rightIndex = nodeIndex + infoY;
+			let distLeft = ${ boundsDistanceFn }( localShape, node.leftBounds, ${ resultArg } );
+			let distRight = ${ boundsDistanceFn }( localShape, node.rightBounds, ${ resultArg } );
+
+			let leftFirst = distLeft <= distRight;
+			let c1 = select( rightIndex, leftIndex, leftFirst );
+			let c2 = select( leftIndex, rightIndex, leftFirst );
+			let d1 = select( distRight, distLeft, leftFirst );
+			let d2 = select( distLeft, distRight, leftFirst );
+
+			if ( d2 >= 0.0 ) {
+
+				pointer = pointer + 1;
+				stack[ pointer ] = c2;
+				distStack[ pointer ] = d2;
+
+			}
+
+			if ( d1 >= 0.0 ) {
+
+				pointer = pointer + 1;
+				stack[ pointer ] = c1;
+				distStack[ pointer ] = d1;
+
+			}
+		`;
+
+	} else {
+
+		childrenSnippet = wgslTagCode/* wgsl */`
+			// test both children here, pushing the farther one first so the nearer is popped next
+			let leftIndex = nodeIndex + 1u;
+			let splitAxis = infoX & 0x0000ffffu;
+			let rightIndex = nodeIndex + infoY;
+			let hitLeft = ${ intersectsBoundsFn }( localShape, node.leftBounds, ${ resultArg } ) != 0u;
+			let hitRight = ${ intersectsBoundsFn }( localShape, node.rightBounds, ${ resultArg } ) != 0u;
+
+			var c1 = rightIndex;
+			var c2 = leftIndex;
+			var hit1 = hitRight;
+			var hit2 = hitLeft;
+			${ leftToRightSnippet }
+
+			if ( hit2 ) {
+
+				pointer = pointer + 1;
+				stack[ pointer ] = c2;
+
+			}
+
+			if ( hit1 ) {
+
+				pointer = pointer + 1;
+				stack[ pointer ] = c1;
+
+			}
+		`;
+
+	}
+
 	// The TLAS and per-cluster BLAS are traversed with a single shared stack and loop. A thread
 	// inside a cluster's BLAS ( using its transformed localShape ) and a thread still in the TLAS
 	// run the same loop body, keeping SIMD lanes converged instead of recursing into a separate
@@ -108,6 +203,7 @@ export function getShapecastFn( bvhData, options ) {
 			var pointer: i32 = 0;
 			var stack: array<u32, ${ BVH_STACK_DEPTH }>;
 			stack[ 0 ] = 0u;
+			${ distStackSnippet }
 
 			var blasDidHit: bool = false;
 			var objectIndex: u32 = 0;
@@ -147,8 +243,11 @@ export function getShapecastFn( bvhData, options ) {
 
 				// a node's bounds were tested by its parent, so the popped node is always entered
 				let nodeIndex = stack[ pointer ];
-				let node = ${ nodes }[ nodeIndex ];
+				${ popDistSnippet }
 				pointer = pointer - 1;
+				${ cullSnippet }
+
+				let node = ${ nodes }[ nodeIndex ];
 
 				let infoX = node.splitAxisOrTriangleCount;
 				let infoY = node.rightChildOrTriangleOffset;
@@ -176,6 +275,7 @@ export function getShapecastFn( bvhData, options ) {
 
 							pointer = pointer + 1;
 							stack[ pointer ] = infoY;
+							${ sorted ? 'distStack[ pointer ] = nodeDist;' : '' }
 
 						}
 
@@ -189,32 +289,7 @@ export function getShapecastFn( bvhData, options ) {
 
 				} else {
 
-					// test both children here, pushing the farther one first so the nearer is popped next
-					let leftIndex = nodeIndex + 1u;
-					let splitAxis = infoX & 0x0000ffffu;
-					let rightIndex = nodeIndex + infoY;
-					let hitLeft = ${ intersectsBoundsFn }( localShape, node.leftBounds, ${ resultArg } ) != 0u;
-					let hitRight = ${ intersectsBoundsFn }( localShape, node.rightBounds, ${ resultArg } ) != 0u;
-
-					var c1 = rightIndex;
-					var c2 = leftIndex;
-					var hit1 = hitRight;
-					var hit2 = hitLeft;
-					${ leftToRightSnippet }
-
-					if ( hit2 ) {
-
-						pointer = pointer + 1;
-						stack[ pointer ] = c2;
-
-					}
-
-					if ( hit1 ) {
-
-						pointer = pointer + 1;
-						stack[ pointer ] = c1;
-
-					}
+					${ childrenSnippet }
 
 				}
 
