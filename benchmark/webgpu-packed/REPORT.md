@@ -45,4 +45,6 @@ All **140 GPU validation cases** passed with zero CPU existence/distance discrep
 
 Fixtures cover empty and nonindexed geometry, degenerate/coincident triangles, finite endpoints, box boundaries/inside origins, signed zero and nearly parallel rays, shared geometry and instances, negative/nonuniform scales, visibility and instance updates, and geometry refits/repacking. CPU unit tests verify default allocation behavior, deduplication across shared meshes/instances, custom attribute order and indirect BVHs, buffer replacement/disposal, nonindexed geometry, and empty geometry.
 
+The full CPU suite passes 30,249 tests with four existing TODOs. Lint and TypeScript checks pass with existing warnings. A local merge of the packing and distance-ordering branches applies without conflicts; both 140-case GPU fixtures pass on the combined tree.
+
 This experiment covers one GPU architecture and deterministic synthetic compute scenes. Larger/real assets, different vertex sharing and cache behavior, other GPU architectures, and full radiosity rendering could produce different results. The packed representation remains off by default.
