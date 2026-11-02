@@ -283,14 +283,13 @@ const query = wgslTagFn`
 
 `raycastFirstHit` and `raycastAnyHit` retain split-axis child ordering. Generic shapecast
 callers can set `terminateOnHit` to stop after a successful range callback, result
-transformation, and shape reset. Its default is false. See the reproducible
-[GPU validation and benchmark](./benchmark/webgpu/README.md).
+transformation, and shape reset. Its default is false.
 
 The optional `new BVHComputeData( objects, { packedTriangles: true } )` representation
 stores three consecutive vec4 corners per triangle for ray intersection. It costs 48 extra
 bytes per unique triangle; shared instances reuse the buffer. After a geometry refit,
 call `update()` to rebuild both attributes and packed positions. The default remains indexed.
-See the [separate packed-triangle experiment](./benchmark/webgpu-packed/README.md).
+
 
 
 
