@@ -287,8 +287,7 @@ ordering. Generic `getShapecastFn` callers can opt into this behavior
 with `boundsDistanceFn` and `distanceLimitFn`; all returned distances must use consistent units
 across object transforms. `distanceLimitFn` is exclusive and requires `boundsDistanceFn`.
 `terminateOnHit` explicitly opts into terminating after a successful range callback, result
-transformation, and shape reset. Its default is false. See the reproducible
-[GPU validation and benchmark](./benchmark/webgpu/README.md).
+transformation, and shape reset. Its default is false. 
 
 
 ## Gotchas
