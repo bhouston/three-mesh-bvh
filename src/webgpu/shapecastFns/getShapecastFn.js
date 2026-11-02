@@ -20,6 +20,7 @@ import { BVH_STACK_DEPTH } from '../tsl/constants.js';
  * @param {Function|null} [options.boundsDistanceFn] - function node returning the distance at which the shape enters a BVH node's bounds, or a negative value to skip it.
  * Replaces `intersectsBoundsFn` and `boundsOrderFn`: children are visited nearest first and the distance is kept on the stack.
  * @param {Function|null} [options.distanceLimitFn] - function node returning the distance beyond which stacked nodes are skipped when popped, eg the closest hit so far. Used with `boundsDistanceFn`.
+ * @param {boolean} [options.terminateOnHit=false] - Return immediately after a successful range callback, after transforming its result.
  * @param {Function} options.intersectRangeFn - function node testing the shape against a leaf triangle range.
  * @param {Function|null} [options.transformShapeFn] - function node that transforms the shape into object local space.
  * @param {Function|null} [options.transformResultFn] - function node that transforms a hit result back to world space.
@@ -44,10 +45,23 @@ export function getShapecastFn( bvhData, options ) {
 		boundsDistanceFn = null,
 		distanceLimitFn = null,
 		intersectRangeFn,
+		terminateOnHit = false,
 		transformShapeFn = null,
 		transformResultFn = null,
 		resetShapeFn = null,
 	} = options;
+
+	if ( ! boundsDistanceFn && ! intersectsBoundsFn ) {
+
+		throw new Error( 'getShapecastFn: intersectsBoundsFn or boundsDistanceFn is required.' );
+
+	}
+
+	if ( distanceLimitFn && ! boundsDistanceFn ) {
+
+		throw new Error( 'getShapecastFn: distanceLimitFn requires boundsDistanceFn.' );
+
+	}
 
 	// these are proxy nodes, so they can be referenced before the storage buffers exist
 	const { nodes, transforms } = bvhData.storage;
@@ -284,6 +298,15 @@ export function getShapecastFn( bvhData, options ) {
 						let count = infoX & 0x0000ffffu;
 						let offset = infoY;
 						blasDidHit = ${ intersectRangeFn }( localShape, offset, count, ${ resultArg } ) || blasDidHit;
+						${ terminateOnHit ? wgslTagCode`
+							if ( blasDidHit ) {
+
+								${ transformResultSnippet }
+								${ resetShapeSnippet }
+								return true;
+
+							}
+						` : '' }
 
 					}
 

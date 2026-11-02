@@ -13,6 +13,7 @@ import {
 } from './tsl/structs.js';
 import { appendBVHData, appendBVHSubtree, appendIndexData, appendGeometryData, getSubtreeNodeCount, getMaxNodeDepth, GPU_BYTES_PER_NODE } from './utils/packBVHBufferUtils.js';
 import { getShapecastFn } from './shapecastFns/getShapecastFn.js';
+import { getRaycastAnyHitFn } from './shapecastFns/getRaycastAnyHitFn.js';
 import { getRaycastFirstHitFn } from './shapecastFns/getRaycastFirstHitFn.js';
 import { getSampleTrianglePointFn } from './shapecastFns/getSampleTrianglePointFn.js';
 import { getClosestPointToPointFn } from './shapecastFns/getClosestPointToPointFn.js';
@@ -133,6 +134,7 @@ export class BVHComputeData {
 		this.structs = new NodeProxyObject( { transform: transformStruct } );
 		this.fns = new NodeProxyObject( {
 			raycastFirstHit: getRaycastFirstHitFn( this ),
+			raycastAnyHit: getRaycastAnyHitFn( this ),
 			closestPointToPoint: getClosestPointToPointFn( this ),
 			sampleTrianglePoint: null,
 		}, proxyFn );
@@ -196,7 +198,10 @@ export class BVHComputeData {
 	 * @param {StructTypeNode|null} [options.resultStruct] - TSL struct for the accumulated result, or null.
 	 * @param {Function|null} [options.prefixFn] - function node that runs before the bvh traversal - useful for resetting or initializing necessary module variables.
 	 * @param {Function|null} [options.boundsOrderFn] - function node controlling left/right child traversal order.
-	 * @param {Function} options.intersectsBoundsFn - function node testing the shape against a BVH node's bounds.
+	 * @param {Function} [options.intersectsBoundsFn] - Bounds predicate. Required unless boundsDistanceFn is set.
+	 * @param {Function|null} [options.boundsDistanceFn] - Entry distance in consistent query units, or negative to skip. Orders children nearest first.
+	 * @param {Function|null} [options.distanceLimitFn] - Exclusive limit for deferred node distances. Requires boundsDistanceFn.
+	 * @param {boolean} [options.terminateOnHit=false] - Return after the first successful range callback and result transformation.
 	 * @param {Function} options.intersectRangeFn - function node testing the shape against a leaf triangle range.
 	 * @param {Function|null} [options.transformShapeFn] - function node that transforms the shape into object local space.
 	 * @param {Function|null} [options.transformResultFn] - function node that transforms a hit result back to world space.
