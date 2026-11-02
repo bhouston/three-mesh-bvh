@@ -283,8 +283,7 @@ const query = wgslTagFn`
 
 `raycastFirstHit` and `raycastAnyHit` retain split-axis child ordering. Generic shapecast
 callers can set `terminateOnHit` to stop after a successful range callback, result
-transformation, and shape reset. Its default is false. See the reproducible
-[GPU validation and benchmark](./benchmark/webgpu/README.md).
+transformation, and shape reset. Its default is false.
 
 
 ## Gotchas
