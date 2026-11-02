@@ -7,7 +7,7 @@ import { getRaycastFirstHitFn } from '/src/webgpu/shapecastFns/getRaycastFirstHi
 import { getShapecastFn } from '/src/webgpu/shapecastFns/getShapecastFn.js';
 import { getRaycastFirstHitFn as baselineRaycast } from '/baseline/getRaycastFirstHitFn.js';
 import { getShapecastFn as baselineShapecast } from '/baseline/getShapecastFn.js';
-import { rayStruct, rayIntersectionResultStruct, bvhNodeBoundsStruct, bvhNodeStruct, pointQueryResultStruct } from '/src/webgpu/tsl/structs.js';
+import { rayStruct, rayIntersectionResultStruct, pointQueryResultStruct } from '/src/webgpu/tsl/structs.js';
 
 function randomGenerator( seed = 12345 ) {
 
@@ -20,7 +20,7 @@ function randomGenerator( seed = 12345 ) {
 
 }
 
-function makeScene( size ) {
+export function makeScene( size ) {
 
 	if ( size === 'edges' || size === 'empty' ) {
 
@@ -72,7 +72,7 @@ function makeScene( size ) {
 
 }
 
-function makeRays( distribution, count ) {
+export function makeRays( distribution, count ) {
 
 	const rand = randomGenerator();
 	const rays = new Float32Array( count * 8 );
@@ -113,7 +113,7 @@ function makeRays( distribution, count ) {
 
 }
 
-function cpuHits( root, rays, count, data ) {
+export function cpuHits( root, rays, count, data ) {
 
 	const slots = [ ...data._getTransformMap( data.bvh ).values() ];
 
@@ -168,38 +168,19 @@ function cpuHits( root, rays, count, data ) {
 
 }
 
-function makeKernel( data, variant, rays ) {
+export function makeKernel( data, variant, rays ) {
 
 	const facade = {
 		storage: data.storage,
 		getShapecastFn: options => {
 
 			if ( variant === 'baseline' ) return baselineShapecast( data, options );
-			if ( variant === 'robust-baseline' ) {
 
-				const distance = options.boundsDistanceFn;
-				options.intersectsBoundsFn = wgslTagFn`
-					fn robustBounds( ray: ${ rayStruct }, bounds: ${ bvhNodeBoundsStruct }, result: ptr<function, ${ rayIntersectionResultStruct }> ) -> u32 {
-						return u32( ${ distance }( ray, bounds, result ) >= 0.0 );
-					}
-				`;
-				options.boundsOrderFn = wgslTagFn`
-					fn order( ray: ${ rayStruct }, axis: u32, node: ${ bvhNodeStruct } ) -> bool {
-						return ray.direction[axis] >= 0.0;
-					}
-				`;
-				delete options.boundsDistanceFn;
-				delete options.distanceLimitFn;
-				return baselineShapecast( data, options );
-
-			}
-
-			if ( variant === 'ordering' ) options.distanceLimitFn = null;
 			return getShapecastFn( data, options );
 
 		},
 	};
-	const query = variant === 'baseline' ? baselineRaycast( facade ) : variant === 'any-hit' ? data.fns.raycastAnyHit : getRaycastFirstHitFn( facade, false, true );
+	const query = variant === 'baseline' ? baselineRaycast( facade ) : variant === 'any-hit' ? data.fns.raycastAnyHit : getRaycastFirstHitFn( facade );
 	const input = storage( new StorageBufferAttribute( rays, 4 ), 'vec4' ).toReadOnly();
 	const outputAttribute = new StorageBufferAttribute( rays.length / 8 * 16, 1 );
 	const output = storage( outputAttribute, 'uint' );
@@ -239,7 +220,6 @@ async function validateNonRay( renderer ) {
 	const output = storage( attribute, 'float' );
 	const query = data.fns.closestPointToPoint;
 	const firstHit = data.fns.raycastFirstHit;
-	const distanceHit = data.fns.raycastFirstHitDistanceOrdered;
 	const anyHit = data.fns.raycastAnyHit;
 	const shader = wgslTagFn`
 		fn testPoint() -> void {
@@ -254,10 +234,8 @@ async function validateNonRay( renderer ) {
 			ray.origin = vec3f( 0.0, 0.0, 4.0 );
 			ray.direction = vec3f( 0.0, 0.0, -1.0 );
 			var first: ${ rayIntersectionResultStruct };
-			var ordered: ${ rayIntersectionResultStruct };
 			${ firstHit }( ray, &first );
-			${ distanceHit }( ray, &ordered );
-			if ( ! ${ anyHit }( ray ) || ! first.didHit || ! ordered.didHit || abs( first.dist - 3.0 ) > 0.0001 || abs( ordered.dist - first.dist ) > 0.0001 ) {
+			if ( ! ${ anyHit }( ray ) || ! first.didHit || abs( first.dist - 3.0 ) > 0.0001 ) {
 
 				${ output }[0] = -1.0;
 
@@ -295,7 +273,7 @@ window.run = async ( benchmark = true, measuredScenes = [ 'small', 'medium', 'la
 	const trials = [];
 	const scenes = [];
 	const firstDispatches = [];
-	const variants = [ 'baseline', 'robust-baseline', 'ordering', 'pruning', 'any-hit' ];
+	const variants = [ 'baseline', 'robust-baseline', 'any-hit' ];
 	for ( const size of [ 'edges', 'empty', 'updated', 'refit', 'small', 'medium', 'large' ] ) {
 
 		const root = makeScene( size === 'updated' || size === 'refit' ? 'medium' : size );
@@ -414,7 +392,7 @@ window.run = async ( benchmark = true, measuredScenes = [ 'small', 'medium', 'la
 
 			if ( benchmark && measuredScenes.includes( size ) && failures.length === 0 && performance.now() - benchmarkStarted < 180000 ) {
 
-				for ( let trial = 0; trial < 1; trial ++ ) for ( const v of trial % 2 ? [ 4, 3, 2, 1 ] : [ 1, 2, 3, 4 ] ) {
+				for ( let trial = 0; trial < 1; trial ++ ) for ( const v of trial % 2 ? [ 2, 1 ] : [ 1, 2 ] ) {
 
 					const { kernel } = kernels[ v ];
 					await queue.onSubmittedWorkDone();
