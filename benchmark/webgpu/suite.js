@@ -258,7 +258,7 @@ async function validateNonRay( renderer ) {
 
 }
 
-window.run = async ( benchmark = true ) => {
+window.run = async ( benchmark = true, measuredScenes = [ 'small', 'medium', 'large' ] ) => {
 
 	const benchmarkStarted = performance.now();
 
@@ -396,7 +396,7 @@ window.run = async ( benchmark = true ) => {
 
 			}
 
-			if ( benchmark && [ 'small', 'medium', 'large' ].includes( size ) && failures.length === 0 && performance.now() - benchmarkStarted < 180000 ) {
+			if ( benchmark && measuredScenes.includes( size ) && failures.length === 0 && performance.now() - benchmarkStarted < 180000 ) {
 
 				for ( let trial = 0; trial < 1; trial ++ ) for ( const v of trial % 2 ? [ 4, 3, 2, 1 ] : [ 1, 2, 3, 4 ] ) {
 

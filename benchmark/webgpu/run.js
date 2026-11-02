@@ -9,7 +9,7 @@ async function main() {
 	const server = await createServer( {
 		configFile: false,
 		root: process.cwd(),
-		server: { port: 5187 },
+		server: { port: 5187, hmr: false, watch: null },
 		plugins: [ {
 			name: 'upstream-traversal',
 			resolveId( id ) {
@@ -41,7 +41,7 @@ async function main() {
 		page.on( 'pageerror', error => console.error( error ) );
 		await page.goto( 'http://localhost:5187/benchmark/webgpu/' );
 		await page.waitForFunction( 'window.run !== undefined' );
-		const result = await page.evaluate( async benchmark => window.run( benchmark ), ! process.argv.includes( '--validate-only' ) );
+		const result = await page.evaluate( async options => window.run( options.benchmark, options.scenes ), { benchmark: ! process.argv.includes( '--validate-only' ), scenes: process.env.BVH_GPU_SCENES?.split( ',' ) } );
 		result.baseline = baseline;
 		result.commit = execFileSync( 'git-dedup', [ 'rev-parse', 'HEAD' ], { encoding: 'utf8' } ).trim();
 		result.browser = await browser.version();
