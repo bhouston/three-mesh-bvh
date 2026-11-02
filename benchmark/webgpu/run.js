@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { writeFileSync, readFileSync } from 'node:fs';
 import { createServer } from 'vite';
 import puppeteer from 'puppeteer';
+import os from 'node:os';
 
 async function main() {
 
@@ -46,9 +47,9 @@ async function main() {
 		result.commit = execFileSync( 'git-dedup', [ 'rev-parse', 'HEAD' ], { encoding: 'utf8' } ).trim();
 		result.browser = await browser.version();
 		result.threeVersion = JSON.parse( readFileSync( 'node_modules/three/package.json', 'utf8' ) ).version;
-		result.hardware = execFileSync( 'system_profiler', [ 'SPDisplaysDataType' ], { encoding: 'utf8' } );
+		result.hardware = os.platform() === 'darwin' ? execFileSync( 'system_profiler', [ 'SPDisplaysDataType' ], { encoding: 'utf8' } ) : { adapter: result.adapter, cpu: os.cpus()[ 0 ]?.model };
 		result.sourceDiff = execFileSync( 'git-dedup', [ 'diff', 'HEAD', '--', 'src/webgpu' ], { encoding: 'utf8' } );
-		result.platform = execFileSync( 'sw_vers', [], { encoding: 'utf8' } );
+		result.platform = os.platform() === 'darwin' ? execFileSync( 'sw_vers', [], { encoding: 'utf8' } ) : { platform: os.platform(), release: os.release(), arch: os.arch() };
 		writeFileSync( process.env.BVH_GPU_RESULTS || 'benchmark/webgpu/results.json', JSON.stringify( result, null, 2 ) + '\n' );
 		console.log( JSON.stringify( result, null, 2 ) );
 		if ( result.failures.length ) process.exitCode = 1;
