@@ -11,31 +11,25 @@ import { intersectRayTriangle } from '../tsl/fns.js';
  * @private
  * @param {BVHComputeData} bvhData
  * @param {boolean} [anyHit=false] - Internal early-exit variant used by raycastAnyHit.
+ * @param {boolean} [distanceOrdered=false] - Opt into distance ordering and deferred pruning.
  * @returns {Function} TSL function node for the TLAS traversal.
  */
-export function getRaycastFirstHitFn( bvhData, anyHit = false ) {
+export function getRaycastFirstHitFn( bvhData, anyHit = false, distanceOrdered = false ) {
 
 	// these are proxy nodes, so they can be referenced before the storage buffers exist
 	const { index, attributes, transforms } = bvhData.storage;
 
 	const scratchRayScalar = float( 1.0 ).toVar( `bvh_rayScalar_${ Math.random().toString( 36 ).substring( 2, 7 ) }` );
 
-	const suffix = anyHit ? 'AnyHit' : 'FirstHit';
+	const suffix = anyHit ? 'AnyHit' : distanceOrdered ? 'FirstHitDistanceOrdered' : 'FirstHit';
 	const options = {
-		name: anyHit ? 'bvh_RaycastAnyHitTraversal' : 'bvh_RaycastFirstHit',
+		name: anyHit ? 'bvh_RaycastAnyHitTraversal' : distanceOrdered ? 'bvh_RaycastFirstHitDistanceOrdered' : 'bvh_RaycastFirstHit',
 		terminateOnHit: anyHit,
 		shapeStruct: rayStruct,
 		resultStruct: rayIntersectionResultStruct,
 
-		boundsOrderFn: wgslTagFn`
-			fn rayBoundsOrder${ suffix }( ray: ${ rayStruct }, axis: u32, node: ${ bvhNodeStruct } ) -> bool {
-
-				return ray.direction[ axis ] >= 0.0;
-
-			}
-		`,
-		intersectsBoundsFn: wgslTagFn/* wgsl */`
-			fn rayIntersectsBounds${ suffix }( ray: ${ rayStruct }, bounds: ${ bvhNodeBoundsStruct }, result: ptr<function, ${ rayIntersectionResultStruct }> ) -> u32 {
+		boundsDistanceFn: wgslTagFn/* wgsl */`
+			fn rayBoundsDistance${ suffix }( ray: ${ rayStruct }, bounds: ${ bvhNodeBoundsStruct }, result: ptr<function, ${ rayIntersectionResultStruct }> ) -> f32 {
 
 				let boundsMin = vec3( bounds.min[0], bounds.min[1], bounds.min[2] );
 				let boundsMax = vec3( bounds.max[0], bounds.max[1], bounds.max[2] );
@@ -44,7 +38,7 @@ export function getRaycastFirstHitFn( bvhData, anyHit = false ) {
 				let parallel = ray.direction == vec3f( 0.0 );
 				if ( any( parallel & ( ( ray.origin < boundsMin ) | ( ray.origin > boundsMax ) ) ) ) {
 
-					return 0u;
+					return - 1.0;
 
 				}
 
@@ -63,21 +57,34 @@ export function getRaycastFirstHitFn( bvhData, anyHit = false ) {
 				let worldDist = dist * ${ scratchRayScalar };
 				if ( t1 < dist ) {
 
-					return 0u;
+					return - 1.0;
 
 				} else if ( ray.maxDist > 0.0 && worldDist >= ray.maxDist ) {
 
-					return 0u;
+					return - 1.0;
 
 				} else if ( result.didHit && worldDist >= result.dist ) {
 
-					return 0u;
+					return - 1.0;
 
 				} else {
 
-					return 1u;
+					return worldDist;
 
 				}
+
+			}
+		`,
+		distanceLimitFn: anyHit ? null : wgslTagFn/* wgsl */`
+			fn rayDistanceLimit${ suffix }( ray: ${ rayStruct }, result: ptr<function, ${ rayIntersectionResultStruct }> ) -> f32 {
+
+				if ( result.didHit ) {
+
+					return result.dist;
+
+				}
+
+				return select( 3.402823e38, ray.maxDist, ray.maxDist > 0.0 );
 
 			}
 		`,
@@ -148,6 +155,28 @@ export function getRaycastFirstHitFn( bvhData, anyHit = false ) {
 			}
 		`,
 	};
+
+	if ( ! distanceOrdered ) {
+
+		const boundsDistanceFn = options.boundsDistanceFn;
+		options.intersectsBoundsFn = wgslTagFn`
+			fn rayIntersectsBounds${ suffix }( ray: ${ rayStruct }, bounds: ${ bvhNodeBoundsStruct }, result: ptr<function, ${ rayIntersectionResultStruct }> ) -> u32 {
+
+				return u32( ${ boundsDistanceFn }( ray, bounds, result ) >= 0.0 );
+
+			}
+		`;
+		options.boundsOrderFn = wgslTagFn`
+			fn rayBoundsOrder${ suffix }( ray: ${ rayStruct }, axis: u32, node: ${ bvhNodeStruct } ) -> bool {
+
+				return ray.direction[ axis ] >= 0.0;
+
+			}
+		`;
+		delete options.boundsDistanceFn;
+		delete options.distanceLimitFn;
+
+	}
 
 	return bvhData.getShapecastFn( options );
 
