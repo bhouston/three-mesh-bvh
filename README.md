@@ -267,6 +267,30 @@ See the [docs site](https://gkjohnson.github.io/tools/docs/three-mesh-bvh/) for 
 
 The same documentation is also available as markdown in [API.md](./API.md) and, for WebGPU, [WEBGPU_API.md](./WEBGPU_API.md).
 
+WebGPU ray queries are available through `BVHComputeData.fns`. `raycastFirstHit( ray, &hit )`
+returns the closest intersection; `raycastAnyHit( ray )` returns a boolean and exits at the
+first blocker. Both use normalized scene-space directions and two-sided triangles. A positive
+`ray.maxDist` excludes hits at or beyond that distance; zero means unbounded. Neither query
+performs alpha or material acceptance tests. In a WGSL function assembled with `wgslTagFn`:
+
+```js
+const query = wgslTagFn`
+    fn occluded( ray: ${ rayStruct } ) -> bool {
+        return ${ bvhData.fns.raycastAnyHit }( ray );
+    }
+`;
+```
+
+`raycastFirstHitDistanceOrdered( ray, &hit )` opts into ordering child boxes by entry distance
+and pruning deferred nodes using scene-space distances. `raycastFirstHit` retains split-axis
+ordering. Generic `getShapecastFn` callers can opt into this behavior
+with `boundsDistanceFn` and `distanceLimitFn`; all returned distances must use consistent units
+across object transforms. `distanceLimitFn` is exclusive and requires `boundsDistanceFn`.
+`terminateOnHit` explicitly opts into terminating after a successful range callback, result
+transformation, and shape reset. Its default is false. See the reproducible
+[GPU validation and benchmark](./benchmark/webgpu/README.md).
+
+
 ## Gotchas
 
 - When querying the MeshBVH directly all shapes and geometry are expected to be specified in the local frame of the BVH. When using three.js' built in raycasting system all results are implicitly transformed into world coordinates.

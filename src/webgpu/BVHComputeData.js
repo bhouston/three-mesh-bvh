@@ -134,6 +134,7 @@ export class BVHComputeData {
 		this.structs = new NodeProxyObject( { transform: transformStruct } );
 		this.fns = new NodeProxyObject( {
 			raycastFirstHit: getRaycastFirstHitFn( this ),
+			raycastFirstHitDistanceOrdered: getRaycastFirstHitFn( this, false, true ),
 			raycastAnyHit: getRaycastAnyHitFn( this ),
 			closestPointToPoint: getClosestPointToPointFn( this ),
 			sampleTrianglePoint: null,

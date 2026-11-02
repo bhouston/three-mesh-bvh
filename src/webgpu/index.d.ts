@@ -19,6 +19,7 @@ export class BVHComputeData {
 
 	fns: {
 		raycastFirstHit: unknown;
+		raycastFirstHitDistanceOrdered: unknown;
 		raycastAnyHit: unknown;
 		sampleTrianglePoint: unknown;
 		closestPointToPoint: unknown;

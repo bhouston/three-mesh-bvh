@@ -199,7 +199,7 @@ function makeKernel( data, variant, rays ) {
 
 		},
 	};
-	const query = variant === 'baseline' ? baselineRaycast( facade ) : variant === 'any-hit' ? data.fns.raycastAnyHit : getRaycastFirstHitFn( facade );
+	const query = variant === 'baseline' ? baselineRaycast( facade ) : variant === 'any-hit' ? data.fns.raycastAnyHit : getRaycastFirstHitFn( facade, false, true );
 	const input = storage( new StorageBufferAttribute( rays, 4 ), 'vec4' ).toReadOnly();
 	const outputAttribute = new StorageBufferAttribute( rays.length / 8 * 16, 1 );
 	const output = storage( outputAttribute, 'uint' );
@@ -238,6 +238,9 @@ async function validateNonRay( renderer ) {
 	const attribute = new StorageBufferAttribute( 4, 1 );
 	const output = storage( attribute, 'float' );
 	const query = data.fns.closestPointToPoint;
+	const firstHit = data.fns.raycastFirstHit;
+	const distanceHit = data.fns.raycastFirstHitDistanceOrdered;
+	const anyHit = data.fns.raycastAnyHit;
 	const shader = wgslTagFn`
 		fn testPoint() -> void {
 
@@ -247,6 +250,18 @@ async function validateNonRay( renderer ) {
 			${ output }[1] = result.closestPoint.x;
 			${ output }[2] = result.closestPoint.y;
 			${ output }[3] = result.closestPoint.z;
+			var ray: ${ rayStruct };
+			ray.origin = vec3f( 0.0, 0.0, 4.0 );
+			ray.direction = vec3f( 0.0, 0.0, -1.0 );
+			var first: ${ rayIntersectionResultStruct };
+			var ordered: ${ rayIntersectionResultStruct };
+			${ firstHit }( ray, &first );
+			${ distanceHit }( ray, &ordered );
+			if ( ! ${ anyHit }( ray ) || ! first.didHit || ! ordered.didHit || abs( first.dist - 3.0 ) > 0.0001 || abs( ordered.dist - first.dist ) > 0.0001 ) {
+
+				${ output }[0] = -1.0;
+
+			}
 
 		}
 	`;
@@ -378,7 +393,7 @@ window.run = async ( benchmark = true, measuredScenes = [ 'small', 'medium', 'la
 						const normal = tri.getNormal( new Vector3() ).multiplyScalar( side ).applyMatrix3( new Matrix3().setFromMatrix4( inverse ).transpose() ).normalize();
 						const actualNormal = new Vector3().fromArray( f32, base + 8 );
 						const error = point.applyMatrix4( toWorld ).distanceTo( ray.at( f32[ base + 1 ], new Vector3() ) );
-						if ( error > 2e-4 * Math.max( 1, f32[ base + 1 ] ) || Math.abs( actualBary.x + actualBary.y + actualBary.z - 1 ) > 1e-5 || Math.min( actualBary.x, actualBary.y, actualBary.z ) < - 1e-5 || normal.distanceTo( actualNormal ) > 2e-3 || side !== f32[ base + 7 ] || ( i < reference.length && reference[ i ] && ! reference[ i ].slots.includes( slot ) ) ) {
+						if ( ! [ error, ...actualBary.toArray(), ...actualNormal.toArray(), f32[ base + 7 ] ].every( Number.isFinite ) || error > 2e-4 * Math.max( 1, f32[ base + 1 ] ) || Math.abs( actualBary.x + actualBary.y + actualBary.z - 1 ) > 1e-5 || Math.min( actualBary.x, actualBary.y, actualBary.z ) < - 1e-5 || normal.distanceTo( actualNormal ) > 2e-3 || side !== f32[ base + 7 ] || ( i < reference.length && reference[ i ] && ! reference[ i ].slots.includes( slot ) ) ) {
 
 							if ( fieldMismatches < 2 ) console.log( JSON.stringify( { field: i, error, side, actualSide: f32[ base + 7 ], normal: normal.toArray(), actualNormal: actualNormal.toArray(), slot, cpu: reference[ i ], bary: actualBary.toArray(), ti } ) );
 							fieldMismatches ++;
@@ -391,7 +406,8 @@ window.run = async ( benchmark = true, measuredScenes = [ 'small', 'medium', 'la
 
 				const validation = { size, distribution, variant: variants[ v ], cpuRays: reference.length, gpuRays: rays.length / 8, mismatches, differences, fieldMismatches };
 				validations.push( validation );
-				if ( ( mismatches && variants[ v ] !== 'baseline' ) || differences || fieldMismatches ) failures.push( validation );
+				const expectedMismatches = variants[ v ] === 'baseline' && size === 'small' && distribution !== 'short-shadow' ? 8 : 0;
+				if ( mismatches !== expectedMismatches || differences || fieldMismatches ) failures.push( validation );
 				console.log( JSON.stringify( validation ) );
 
 			}
