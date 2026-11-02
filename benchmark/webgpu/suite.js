@@ -172,6 +172,7 @@ export function makeKernel( data, variant, rays ) {
 
 	const facade = {
 		storage: data.storage,
+		packedTriangles: data.packedTriangles,
 		getShapecastFn: options => {
 
 			if ( variant === 'baseline' ) return baselineShapecast( data, options );

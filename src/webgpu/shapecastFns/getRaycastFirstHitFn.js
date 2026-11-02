@@ -16,7 +16,7 @@ import { intersectRayTriangle } from '../tsl/fns.js';
 export function getRaycastFirstHitFn( bvhData, anyHit = false ) {
 
 	// these are proxy nodes, so they can be referenced before the storage buffers exist
-	const { index, attributes, transforms } = bvhData.storage;
+	const { index, attributes, transforms, trianglePositions } = bvhData.storage;
 
 	const scratchRayScalar = float( 1.0 ).toVar( `bvh_rayScalar_${ Math.random().toString( 36 ).substring( 2, 7 ) }` );
 
@@ -87,13 +87,18 @@ export function getRaycastFirstHitFn( bvhData, anyHit = false ) {
 				var didHit = false;
 				for ( var ti = offset; ti < offset + count; ti = ti + 1u ) {
 
-					let i0 = ${ index }[ ti * 3u ];
-					let i1 = ${ index }[ ti * 3u + 1u ];
-					let i2 = ${ index }[ ti * 3u + 2u ];
-
-					let a = ${ attributes }[ i0 ].position.xyz;
-					let b = ${ attributes }[ i1 ].position.xyz;
-					let c = ${ attributes }[ i2 ].position.xyz;
+					${ bvhData.packedTriangles ? wgslTagCode`
+						let a = ${ trianglePositions }[ ti * 3u ].xyz;
+						let b = ${ trianglePositions }[ ti * 3u + 1u ].xyz;
+						let c = ${ trianglePositions }[ ti * 3u + 2u ].xyz;
+					` : wgslTagCode`
+						let i0 = ${ index }[ ti * 3u ];
+						let i1 = ${ index }[ ti * 3u + 1u ];
+						let i2 = ${ index }[ ti * 3u + 2u ];
+						let a = ${ attributes }[ i0 ].position.xyz;
+						let b = ${ attributes }[ i1 ].position.xyz;
+						let c = ${ attributes }[ i2 ].position.xyz;
+					` }
 
 					var triResult = ${ intersectRayTriangle }( ray, a, b, c, 0.0 );
 					triResult.dist *= ${ scratchRayScalar };
@@ -105,7 +110,7 @@ export function getRaycastFirstHitFn( bvhData, anyHit = false ) {
 						result.normal = triResult.normal;
 						result.side = triResult.side;
 						result.barycoord = triResult.barycoord;
-						result.indices = vec4u( i0, i1, i2, ti );
+						result.indices = vec4u( ${ index }[ ti * 3u ], ${ index }[ ti * 3u + 1u ], ${ index }[ ti * 3u + 2u ], ti );
 
 						didHit = true;
 						` }

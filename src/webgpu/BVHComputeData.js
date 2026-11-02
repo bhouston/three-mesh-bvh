@@ -83,6 +83,7 @@ export class BVHComputeData {
 	 * @param {Record<string,string>} [options.attributes={ position: 'vec4f' }]
 	 * WGSL type map for the interleaved per-vertex attribute buffer. Keys are geometry
 	 * attribute names; values are WGSL type strings (e.g. `'vec3f'`, `'vec4f'`).
+	 * @param {boolean} [options.packedTriangles=false] - Add three vec4 position records per triangle for ray queries. Shared geometry is packed once.
 	 * @param {boolean} [options.autogenerateBvh=true]
 	 * When true, a {@link MeshBVH} is automatically built for any object that does not
 	 * already have `geometry.boundsTree` set.
@@ -92,6 +93,7 @@ export class BVHComputeData {
 		const {
 			attributes = { position: 'vec4f' },
 			autogenerateBvh = true,
+			packedTriangles = false,
 		} = options;
 
 		// convert the arguments to a list of objects
@@ -124,6 +126,7 @@ export class BVHComputeData {
 		this._bvhCache = new Map();
 
 		this.autogenerateBvh = autogenerateBvh;
+		this.packedTriangles = packedTriangles;
 		this.attributes = attributes;
 		this.objects = objects;
 		this.bvh = null;
@@ -426,6 +429,37 @@ export class BVHComputeData {
 		const transformsStorage = storage( transformsBuffer, structs.transform ).toReadOnly().setName( 'bvh_transforms' );
 		const indexStorage = storage( new StorageBufferAttribute( indexBuffer, 1 ), 'uint' ).toReadOnly().setName( 'bvh_index' );
 		const attributesStorage = storage( new StorageBufferAttribute( new Uint32Array( attributesBuffer ), attributeStruct.getLength() ), attributeStruct ).toReadOnly().setName( 'bvh_attributes' );
+
+		if ( this.packedTriangles ) {
+
+			// Read the already prepared positions so skinning, vertex ranges, defaults, and
+			// attribute conversion match indexed traversal. The index buffer already follows
+			// BVH triangle order and is deduplicated per geometry, including shared instances.
+			const positions = new Float32Array( attributesBuffer );
+			const stride = attributeStruct.getLength();
+			const positionMember = attributeStruct.membersLayout.findIndex( member => member.name === 'position' );
+			if ( positionMember === - 1 ) {
+
+				throw new Error( 'BVHComputeData: packedTriangles requires the position attribute.' );
+
+			}
+
+			// appendGeometryData writes each attribute at memberIndex * 4.
+			const positionOffset = positionMember * 4;
+			const packed = new Float32Array( Math.max( indexOffset, 2 ) * 4 );
+			for ( let i = 0; i < indexOffset; i ++ ) {
+
+				const offset = indexBuffer[ i ] * stride + positionOffset;
+				packed[ i * 4 ] = positions[ offset ];
+				packed[ i * 4 + 1 ] = positions[ offset + 1 ];
+				packed[ i * 4 + 2 ] = positions[ offset + 2 ];
+				packed[ i * 4 + 3 ] = 1;
+
+			}
+
+			this.storage.trianglePositions = storage( new StorageBufferAttribute( packed, 4 ), 'vec4' ).toReadOnly().setName( 'bvh_trianglePositions' );
+
+		}
 
 		this.storage.transforms = transformsStorage;
 		this.storage.nodes = bvhNodesStorage;
