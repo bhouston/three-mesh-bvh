@@ -2,11 +2,11 @@
 
 Measured November 2, 2026 on an Apple M3 (10 GPU cores), Metal 3 WebGPU adapter, macOS 27.0.1 (26A434), Chrome 149.0.7827.22, and Three.js 0.185.0. Software/fallback adapters were rejected. The exact upstream baseline is `26fc97c5f007b8bd905ec31df9deac5d9d668782`.
 
-The benchmark used 31 completed trials totaling 155.126 seconds of timed GPU work, within the requested five-minute budget. Each trial ran sequentially for at least five seconds with 16,384 rays per completed frame and a queue completion fence after every 16 frames. Vsync and frame limits were disabled. All shaders were warmed up and the queue drained before measurement. Timed output writes were retained; validation readbacks were outside the timed intervals.
+The benchmark used 33 completed trials totaling 165.125 seconds of timed GPU work, within the requested five-minute budget. Each trial ran sequentially for at least five seconds with 16,384 rays per completed frame and a queue completion fence after every 16 frames. Vsync and frame limits were disabled. All shaders were warmed up and the queue drained before measurement. Timed output writes were retained; validation readbacks were outside the timed intervals.
 
 ## Throughput
 
-Mrays/s values below are the median and range of the indicated trial count. A single trial has an identical minimum and maximum. Speedup is the ratio to the matched median of upstream traversal with the same robust slab arithmetic (`robust-baseline`). Any-hit is an occlusion query, while the other variants find the closest hit.
+Mrays/s values below are the median and range of the indicated trial count. A single trial has an identical minimum and maximum. Speedup is the ratio to the matched median of upstream traversal with the same robust slab arithmetic (`robust-baseline`). All timed variants in this report find the closest hit. Any-hit is evaluated in the base PR.
 
 | Scene | Rays | Implementation | Trials | Median Mrays/s | Range Mrays/s | Relative throughput |
 | --- | --- | --- | ---: | ---: | ---: | ---: |
@@ -35,7 +35,7 @@ The raw [benchmark-results.json](./benchmark-results.json) includes completed fr
 
 ## Correctness
 
-The final [validation-results.json](./validation-results.json) contains the complete five-distribution correctness matrix. Each candidate has zero CPU hit/distance mismatches, zero differences from the robust GPU control, and zero reconstructed-result field mismatches. The original upstream query records eight misses on axis-parallel box-boundary rays in each of four distributions. The robust slab fix resolves those misses. A combined shader also executes default closest-hit, distance-ordered closest-hit, any-hit, and a non-ray closest-point query together.
+The final [validation-results.json](./validation-results.json) contains the complete five-distribution correctness matrix. Each candidate has zero CPU hit/distance mismatches, zero differences from the robust GPU control, and zero reconstructed-result field mismatches. The original upstream query records eight misses on axis-parallel box-boundary rays in each of four distributions. The robust slab fix resolves those misses. A combined shader also executes default closest-hit, distance-ordered closest-hit, any-hit, and a non-ray closest-point query together. The distance-ordering PR adds no change to the base any-hit traversal.
 
 CPU checks cover 1,024 rays per workload; GPU comparisons and reconstruction cover all 16,384 rays. See [README.md](./README.md) for the exact fixtures and tie policy. The standard CPU suite passed 30,245 tests with four existing TODOs. Lint and TypeScript checks passed with existing lint warnings.
 
