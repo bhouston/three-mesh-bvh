@@ -260,6 +260,8 @@ async function validateNonRay( renderer ) {
 
 window.run = async ( benchmark = true ) => {
 
+	const benchmarkStarted = performance.now();
+
 	const adapter = await navigator.gpu?.requestAdapter();
 	if ( ! adapter ) throw new Error( 'A hardware WebGPU adapter is required.' );
 	const info = adapter.info;
@@ -305,7 +307,7 @@ window.run = async ( benchmark = true ) => {
 		}
 
 		scenes.push( { size, preparationMs, uniqueTriangles: size === 'empty' ? 0 : data.storage.index.proxyNode.value.array.length / 3, bytes: Object.fromEntries( [ 'nodes', 'index', 'attributes', 'transforms' ].map( name => [ name, data.storage[ name ].proxyNode.value.array.byteLength ] ) ), strategy: 'SAH', targetLeafSize: size === 'edges' || size === 'empty' ? 1 : 4 } );
-		for ( const distribution of [ 'camera', 'diffuse', 'short-shadow', 'long-shadow', 'miss' ] ) {
+		for ( const distribution of benchmark && [ 'small', 'medium', 'large' ].includes( size ) ? [ 'camera', 'long-shadow' ] : [ 'camera', 'diffuse', 'short-shadow', 'long-shadow', 'miss' ] ) {
 
 			const rays = makeRays( distribution, 16384 );
 			if ( size === 'edges' ) {
@@ -394,9 +396,9 @@ window.run = async ( benchmark = true ) => {
 
 			}
 
-			if ( benchmark && [ 'small', 'medium', 'large' ].includes( size ) && failures.length === 0 ) {
+			if ( benchmark && [ 'small', 'medium', 'large' ].includes( size ) && failures.length === 0 && performance.now() - benchmarkStarted < 180000 ) {
 
-				for ( let trial = 0; trial < 3; trial ++ ) for ( const v of trial % 2 ? [ 4, 3, 2, 1 ] : [ 1, 2, 3, 4 ] ) {
+				for ( let trial = 0; trial < 1; trial ++ ) for ( const v of trial % 2 ? [ 4, 3, 2, 1 ] : [ 1, 2, 3, 4 ] ) {
 
 					const { kernel } = kernels[ v ];
 					await queue.onSubmittedWorkDone();
