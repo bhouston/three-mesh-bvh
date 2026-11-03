@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+### Added
+- BVHComputeData: "raycastAnyHit" function that ends traversal at the first hit, for shadow and occlusion rays.
+- BVHComputeData: "getShapecastFn" range callbacks can return "STOP_TRAVERSAL" to end the traversal early.
+
+### Fixed
+- BVHComputeData: "raycastFirstHit" no longer misses bounds for axis-parallel rays that lie on a bounds face.
+- BVHHelper: No longer generates infinite positions for a BVH with empty bounds, such as one built from an empty geometry.
+
 ## [0.9.17] - 2026-10-28
 ### Added
 - BVHComputeData: "updateAsync" so a "getBVH" override can build BVHs asynchronously.
